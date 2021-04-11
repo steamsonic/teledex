@@ -1,0 +1,6 @@
+*.ini
+*.txt
+venv/
+virtualenv/
+*.env
+*session
