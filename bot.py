@@ -13,6 +13,7 @@ def read_existing_idx_id(channel_id):
         for i in range(len(lines)):
             lines[i] = lines[i].split()
 
+        print(lines)
         # parse the lines into a dictionary
         idx_dict={}
 
@@ -91,10 +92,13 @@ def generate_channel_index(app, idx_chat_id, idx_msg_id):
             print(e)
             print(message_text)
 
+def post_index(app, channel_id, prev_idx_id):
+    index_text = generate_channel_index(channel)
+
 
 def main():
     app = Client(os.environ.get('CLIENT_NAME'))
-    channel_id = os.environ.get('CHANNEL_ID')
+    channel_id = int(os.environ.get('CHANNEL_ID'))
     idx_msg_id = -1
 
     with app:
@@ -103,3 +107,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# TODO:
+# figure out why is the index posted twice
+# finish refactoring post_index function
