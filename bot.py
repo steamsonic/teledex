@@ -1,6 +1,8 @@
+import pyrogram
 from pyrogram import Client
-from pyrogram.errors import BadRequest
+from pyrogram.errors import BadRequest, FloodWait
 import os.path, os
+import time
 
 def read_existing_idx_id(channel_id):
     ''' returns the id of the msg that holds the index for channel_id if it already exists in the file
@@ -44,7 +46,8 @@ def msg_txt_from_msg_list(msgs, index_names):
             continue
 
         # generate link for msg and add it to the final msg text
-        result += f'''🔹<a href={msg.link}>{name}</a> \n'''
+        # result += f'''🔹<a href={msg.link}>{name}</a> \n'''
+        result += f'''🔹[{name}]({msg.link})\n'''
         last_indexed_name = name
 
     return result
@@ -57,30 +60,70 @@ def post_sub_index(app, msgs, index_names):
 
     result = f'\t{group_name.capitalize()}\n' + index
 
-    msg = app.send_message(msgs[0].chat.id, result)
+    try:
+        msg = app.send_message(msgs[0].chat.id, result, parse_mode="md")
+    except FloodWait as e:
+        time.sleep(e.x)
+        msg = app.send_message(msgs[0].chat.id, result, parse_mode="md")
+
     print(result)
     return msg.link
+
+def post_sub_index_wrapper(app, msgs, index_names):
+    size = len(msg_txt_from_msg_list(msgs, index_names))
+    post_count = size//4096 + 1
+    post_size = len(msgs)//post_count
+    links = []
+    start = 0
+    end = post_size
+    for i in range(post_count):
+        link = post_sub_index(app, msgs[start:end], index_names)
+        links.append(link)
+        start = end
+        end += post_size
+        end = min(end, len(msgs)-1)
+
+    print(len(msgs), post_count)
+    return(links[0])
+
+def get_msg_list(app, idx_chat_id):
+    msgs = []
+    if os.path.exists('./data.txt'):
+        with open('data.txt', 'r') as f:
+            msgs_repr = f.readlines()
+            for line in msgs_repr:
+                msgs.append(eval(line))
+            print("no need for tele. we got the messages already")
+    else:
+        msgs_repr_lines = []
+        # for msg in app.get_history(idx_chat_id, offset_date=int(os.environ.get('OFFSET_DATE'))):
+        for msg in app.iter_history(idx_chat_id):
+            msgs.append(msg)
+            msgs_repr_lines.append(repr(msg) + '\n')
+
+        # now write the msgs to file
+        with open('data.txt', 'w') as f:
+            f.writelines(msgs_repr_lines)
+
+    return msgs
+
 
 def generate_channel_index(app, idx_chat_id, idx_msg_id):
     # for msg in app.iter_history(channel_id):
     #     print(msg.text)
     master_index = 'Master Index \n\n'
     msgs = []
+    all_msgs = get_msg_list(app, idx_chat_id)
 
     index_names = {}
     # for msg in app.get_history(idx_chat_id, offset_date=int(os.environ.get('OFFSET_DATE'))):
-    for msg in app.iter_history(idx_chat_id):
+    for msg in all_msgs:
         if (msg.document and ('video' in msg.document.mime_type)) or msg.video:
             msgs.append(msg)
 
             # decide index name based on type of msg
             if msg.video:
-                # if msg.caption and msg.video.file_name:
-                #     index_names[msg.message_id] = msg.caption if len(msg.caption) < len(msg.video.file_name) and converteelse msg.video.file_name
-                # else:
-                #     index_names[msg.message_id] = msg.caption if msg.caption else msg.video.file_name
                 index_names[msg.message_id] = msg.caption if msg.caption else msg.video.file_name
-
             elif msg.document:
                 index_names[msg.message_id] = msg.document.file_name
 
@@ -101,11 +144,11 @@ def generate_channel_index(app, idx_chat_id, idx_msg_id):
             continue
         end = i+1
         group_name = first_char if first_char.isalpha() else 'special characters or numbers'
-        link = post_sub_index(app, msgs[start:end], index_names)
+        link = post_sub_index_wrapper(app, msgs[start:end], index_names)
         start = end
         master_index += f'🔹<a href={link}>index of movies starting with {group_name.capitalize()}</a>\n'
     else:
-        link = post_sub_index(app, msgs[start:], index_names)
+        link = post_sub_index_wrapper(app, msgs[start:], index_names)
         master_index += f'🔹<a href={link}>index of movies starting with {group_name.capitalize()}</a>\n'
 
 
@@ -129,7 +172,7 @@ def generate_channel_index(app, idx_chat_id, idx_msg_id):
             app.edit_message_text(chat_id=idx_chat_id, message_id=idx_msg_id, text=master_index, disable_web_page_preview=True)
         except BadRequest as e:
             print(e)
-            print(message_text)
+            # print(message_text)
 
 def update_index(app, channel_id, prev_idx_id):
     index_text = generate_channel_index(channel)
